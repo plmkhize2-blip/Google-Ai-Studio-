@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="100%" stop-color="#05070c" />
+    </linearGradient>
+    <linearGradient id="bull" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="bear" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+    <linearGradient id="scanBeam" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0" />
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background with rounded corners -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)" />
+  
+  <!-- Subtle Grid lines -->
+  <path d="M 64 160 L 448 160 M 64 256 L 448 256 M 64 352 L 448 352" stroke="#1e293b" stroke-width="2" stroke-dasharray="4 4" />
+  <path d="M 160 64 L 160 448 M 256 64 L 256 448 M 352 64 L 352 448" stroke="#1e293b" stroke-width="2" stroke-dasharray="4 4" />
+
+  <!-- Candlestick 1: Bullish -->
+  <line x1="140" y1="180" x2="140" y2="360" stroke="#10b981" stroke-width="5" stroke-linecap="round" />
+  <rect x="122" y="210" width="36" height="110" rx="6" fill="url(#bull)" />
+
+  <!-- Candlestick 2: Bearish Retracement -->
+  <line x1="220" y1="150" x2="220" y2="330" stroke="#f43f5e" stroke-width="5" stroke-linecap="round" />
+  <rect x="202" y="190" width="36" height="85" rx="6" fill="url(#bear)" />
+
+  <!-- Candlestick 3: Strong Bullish Breakout -->
+  <line x1="300" y1="100" x2="300" y2="390" stroke="#10b981" stroke-width="5" stroke-linecap="round" />
+  <rect x="282" y="140" width="36" height="170" rx="6" fill="url(#bull)" />
+
+  <!-- Candlestick 4: Continuation -->
+  <line x1="380" y1="90" x2="380" y2="280" stroke="#10b981" stroke-width="5" stroke-linecap="round" />
+  <rect x="362" y="110" width="36" height="90" rx="6" fill="url(#bull)" />
+
+  <!-- AI Radar Target Reticle / Scanner Crosshairs -->
+  <circle cx="300" cy="140" r="44" fill="none" stroke="#06b6d4" stroke-width="4" stroke-dasharray="6 4" opacity="0.9" />
+  <circle cx="300" cy="140" r="14" fill="#06b6d4" opacity="0.6" />
+  <circle cx="300" cy="140" r="4" fill="#ffffff" />
+  
+  <!-- Scan line horizontal -->
+  <rect x="64" y="228" width="384" height="4" fill="url(#scanBeam)" />
+  
+  <!-- Bracket corners on scan zone -->
+  <path d="M 100 130 L 70 130 L 70 160" stroke="#06b6d4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <path d="M 412 130 L 442 130 L 442 160" stroke="#06b6d4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <path d="M 100 382 L 70 382 L 70 352" stroke="#06b6d4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <path d="M 412 382 L 442 382 L 442 352" stroke="#06b6d4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+</svg>

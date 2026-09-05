@@ -1,0 +1,6 @@
+{
+  "name": "AI Chart Scanner",
+  "description": "Mobile-first trading chart scanner powered by AI vision to analyze candlestick structure, detect key levels, and deliver validated setups.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
