@@ -13,15 +13,22 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Initialize Gemini SDK with User-Agent header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+// Lazy initialization for Gemini SDK
+let genAIClient: GoogleGenAI | null = null;
+function getGenAI(): GoogleGenAI {
+  if (!genAIClient) {
+    const key = process.env.GEMINI_API_KEY || "";
+    genAIClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return genAIClient;
+}
 
 // API health endpoint
 app.get("/api/health", (req, res) => {
@@ -42,6 +49,27 @@ const STRATEGY_PROMPTS: Record<string, string> = {
   "Liquidity / Price Action": "Detect liquidity sweeps of swing highs/lows, fair value gaps (FVG), and imbalance fills.",
   "Moving Average": "Analyze dynamic support/resistance from visible 20/50/200 MAs or EMA crossovers.",
   "RSI Confirmation": "Look for RSI divergence, overbought/oversold turns, and midline 50 bounces if indicators are visible.",
+};
+
+// Resilient fallback candidate models prioritized by current availability and latency
+const CANDIDATE_MODELS = [
+  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-flash-latest",
+];
+
+const isDemandOrRateError = (err: unknown): boolean => {
+  if (!err) return false;
+  const str = err instanceof Error ? err.message : String(err);
+  return (
+    str.includes("503") ||
+    str.includes("UNAVAILABLE") ||
+    str.includes("high demand") ||
+    str.includes("429") ||
+    str.includes("RESOURCE_EXHAUSTED") ||
+    str.includes("try again later") ||
+    str.includes("temporarily unavailable")
+  );
 };
 
 // POST /api/analyze-chart
@@ -100,156 +128,208 @@ STRICT ACCURACY RULES:
       },
     };
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: {
-        parts: [imagePart, { text: prompt }],
-      },
-      config: {
-        systemInstruction:
-          "You are a strict, professional institutional trading system. You strictly analyze only the real data present in the user's uploaded chart image. You never hallucinate price levels.",
-        responseMimeType: "application/json",
-        responseSchema: {
+    const analysisSchema = {
+      type: Type.OBJECT,
+      properties: {
+        isValidSetup: {
+          type: Type.BOOLEAN,
+          description: "True if the chart contains a readable, high-quality setup. False if unreadable, ambiguous, or no reliable setup exists.",
+        },
+        rejectionReason: {
+          type: Type.STRING,
+          description: "If isValidSetup is false, clearly state 'Unable to determine a reliable setup from this chart.' followed by the reason.",
+        },
+        symbol: {
+          type: Type.STRING,
+          description: "Detected symbol or ticker (e.g. XAUUSD, BTCUSDT, EURUSD)",
+        },
+        timeframe: {
+          type: Type.STRING,
+          description: "Detected timeframe (e.g. 15M, 1H, 4H, 1D)",
+        },
+        direction: {
+          type: Type.STRING,
+          description: "Trade direction: BUY or SELL or NEUTRAL",
+        },
+        strategy: {
+          type: Type.STRING,
+          description: "The applied trading strategy",
+        },
+        currentPrice: {
+          type: Type.NUMBER,
+          description: "The current/latest visible price on the chart",
+        },
+        entry: {
+          type: Type.NUMBER,
+          description: "Exact Entry price based on chart structure",
+        },
+        stopLoss: {
+          type: Type.NUMBER,
+          description: "Exact Stop Loss price based on chart structure",
+        },
+        takeProfit: {
+          type: Type.NUMBER,
+          description: "Exact ONE Take Profit price target",
+        },
+        riskReward: {
+          type: Type.STRING,
+          description: "Formatted Risk/Reward ratio, e.g. '1 : 2.0'",
+        },
+        confidence: {
+          type: Type.STRING,
+          description: "High, Medium, or Low",
+        },
+        trend: {
+          type: Type.STRING,
+          description: "Bullish, Bearish, or Ranging",
+        },
+        marketStructure: {
+          type: Type.STRING,
+          description: "Detailed structure (e.g. Higher Highs & Higher Lows, Break of Structure, Bearish Order Block)",
+        },
+        keyLevels: {
           type: Type.OBJECT,
           properties: {
-            isValidSetup: {
-              type: Type.BOOLEAN,
-              description: "True if the chart contains a readable, high-quality setup. False if unreadable, ambiguous, or no reliable setup exists.",
-            },
-            rejectionReason: {
+            support: { type: Type.STRING, description: "Identified support price level(s)" },
+            resistance: { type: Type.STRING, description: "Identified resistance price level(s)" },
+            swingHigh: { type: Type.STRING, description: "Recent swing high price level" },
+            swingLow: { type: Type.STRING, description: "Recent swing low price level" },
+          },
+        },
+        entryYPercent: {
+          type: Type.NUMBER,
+          description: "Vertical position percentage from top of image (0 to 100) for Entry line",
+        },
+        slYPercent: {
+          type: Type.NUMBER,
+          description: "Vertical position percentage from top of image (0 to 100) for Stop Loss line",
+        },
+        tpYPercent: {
+          type: Type.NUMBER,
+          description: "Vertical position percentage from top of image (0 to 100) for Take Profit line",
+        },
+        currentPriceYPercent: {
+          type: Type.NUMBER,
+          description: "Vertical position percentage from top of image (0 to 100) for Current Price",
+        },
+        minVisiblePrice: {
+          type: Type.NUMBER,
+          description: "Lowest price visible on the vertical axis",
+        },
+        maxVisiblePrice: {
+          type: Type.NUMBER,
+          description: "Highest price visible on the vertical axis",
+        },
+        analysis: {
+          type: Type.OBJECT,
+          properties: {
+            structureBreakdown: {
               type: Type.STRING,
-              description: "If isValidSetup is false, clearly state 'Unable to determine a reliable setup from this chart.' followed by the reason.",
+              description: "Concise breakdown of candle patterns and structure",
             },
-            symbol: {
+            entryReason: {
               type: Type.STRING,
-              description: "Detected symbol or ticker (e.g. XAUUSD, BTCUSDT, EURUSD)",
+              description: "Specific reason for this exact Entry price",
             },
-            timeframe: {
+            stopLossReason: {
               type: Type.STRING,
-              description: "Detected timeframe (e.g. 15M, 1H, 4H, 1D)",
+              description: "Specific reason for this Stop Loss placement",
             },
-            direction: {
+            takeProfitReason: {
               type: Type.STRING,
-              description: "Trade direction: BUY or SELL or NEUTRAL",
+              description: "Specific reason for this Take Profit target",
             },
-            strategy: {
+            riskWarning: {
               type: Type.STRING,
-              description: "The applied trading strategy",
-            },
-            currentPrice: {
-              type: Type.NUMBER,
-              description: "The current/latest visible price on the chart",
-            },
-            entry: {
-              type: Type.NUMBER,
-              description: "Exact Entry price based on chart structure",
-            },
-            stopLoss: {
-              type: Type.NUMBER,
-              description: "Exact Stop Loss price based on chart structure",
-            },
-            takeProfit: {
-              type: Type.NUMBER,
-              description: "Exact ONE Take Profit price target",
-            },
-            riskReward: {
-              type: Type.STRING,
-              description: "Formatted Risk/Reward ratio, e.g. '1 : 2.0'",
-            },
-            confidence: {
-              type: Type.STRING,
-              description: "High, Medium, or Low",
-            },
-            trend: {
-              type: Type.STRING,
-              description: "Bullish, Bearish, or Ranging",
-            },
-            marketStructure: {
-              type: Type.STRING,
-              description: "Detailed structure (e.g. Higher Highs & Higher Lows, Break of Structure, Bearish Order Block)",
-            },
-            keyLevels: {
-              type: Type.OBJECT,
-              properties: {
-                support: { type: Type.STRING, description: "Identified support price level(s)" },
-                resistance: { type: Type.STRING, description: "Identified resistance price level(s)" },
-                swingHigh: { type: Type.STRING, description: "Recent swing high price level" },
-                swingLow: { type: Type.STRING, description: "Recent swing low price level" },
-              },
-            },
-            entryYPercent: {
-              type: Type.NUMBER,
-              description: "Vertical position percentage from top of image (0 to 100) for Entry line",
-            },
-            slYPercent: {
-              type: Type.NUMBER,
-              description: "Vertical position percentage from top of image (0 to 100) for Stop Loss line",
-            },
-            tpYPercent: {
-              type: Type.NUMBER,
-              description: "Vertical position percentage from top of image (0 to 100) for Take Profit line",
-            },
-            currentPriceYPercent: {
-              type: Type.NUMBER,
-              description: "Vertical position percentage from top of image (0 to 100) for Current Price",
-            },
-            minVisiblePrice: {
-              type: Type.NUMBER,
-              description: "Lowest price visible on the vertical axis",
-            },
-            maxVisiblePrice: {
-              type: Type.NUMBER,
-              description: "Highest price visible on the vertical axis",
-            },
-            analysis: {
-              type: Type.OBJECT,
-              properties: {
-                structureBreakdown: {
-                  type: Type.STRING,
-                  description: "Concise breakdown of candle patterns and structure",
-                },
-                entryReason: {
-                  type: Type.STRING,
-                  description: "Specific reason for this exact Entry price",
-                },
-                stopLossReason: {
-                  type: Type.STRING,
-                  description: "Specific reason for this Stop Loss placement",
-                },
-                takeProfitReason: {
-                  type: Type.STRING,
-                  description: "Specific reason for this Take Profit target",
-                },
-                riskWarning: {
-                  type: Type.STRING,
-                  description: "Key invalidation condition or risk consideration",
-                },
-              },
-              required: ["structureBreakdown", "entryReason", "stopLossReason", "takeProfitReason"],
+              description: "Key invalidation condition or risk consideration",
             },
           },
-          required: ["isValidSetup", "symbol", "timeframe", "direction", "confidence"],
+          required: ["structureBreakdown", "entryReason", "stopLossReason", "takeProfitReason"],
         },
       },
-    });
+      required: ["isValidSetup", "symbol", "timeframe", "direction", "confidence"],
+    };
 
-    const text = response.text || "";
+    let responseText = "";
+    let lastError: unknown = null;
+
+    // Execute with automatic model fallback
+    for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
+      const modelName = CANDIDATE_MODELS[i];
+      try {
+        const response = await getGenAI().models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [imagePart, { text: prompt }],
+          },
+          config: {
+            systemInstruction:
+              "You are a strict, professional institutional trading system. You strictly analyze only the real data present in the user's uploaded chart image. You never hallucinate price levels.",
+            responseMimeType: "application/json",
+            responseSchema: analysisSchema,
+          },
+        });
+
+        if (response.text) {
+          responseText = response.text;
+          lastError = null;
+          break;
+        }
+      } catch (err: unknown) {
+        lastError = err;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const isTransient = isDemandOrRateError(err);
+
+        // If it's a high demand/temporary unavailability error, cascade to next available model
+        if (isTransient && i < CANDIDATE_MODELS.length - 1) {
+          console.info(`[Gemini Vision] Model ${modelName} is busy, cascading to ${CANDIDATE_MODELS[i + 1]}...`);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          continue;
+        }
+
+        if (!isTransient) {
+          console.warn(`[Gemini Vision] Model ${modelName} returned error:`, errMsg);
+          break;
+        }
+      }
+    }
+
+    if (!responseText) {
+      if (lastError && isDemandOrRateError(lastError)) {
+        return res.status(503).json({
+          error: "The AI vision model is currently experiencing temporary high demand across data centers. Please retry in a few seconds.",
+          isHighDemand: true,
+          canRetry: true,
+        });
+      }
+      throw lastError || new Error("Failed to receive a valid response from the AI Vision engine.");
+    }
+
     let data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(responseText);
     } catch {
       return res.status(502).json({
         error: "Failed to parse AI chart analysis response",
-        raw: text,
+        raw: responseText,
       });
     }
 
     return res.json(data);
   } catch (error: unknown) {
-    console.error("Error analyzing chart:", error);
+    const is503 = isDemandOrRateError(error);
+    if (!is503) {
+      console.error("Error analyzing chart:", error);
+    } else {
+      console.info("[Gemini Vision] Model capacity spike reached across fallback models, notifying client to retry.");
+    }
     const errorMessage = error instanceof Error ? error.message : "Internal server error analyzing chart";
-    return res.status(500).json({
-      error: errorMessage,
+    return res.status(is503 ? 503 : 500).json({
+      error: is503
+        ? "The AI vision model is currently experiencing temporary high demand across data centers. Please retry in a few seconds."
+        : errorMessage,
+      isHighDemand: is503,
+      canRetry: is503,
     });
   }
 });

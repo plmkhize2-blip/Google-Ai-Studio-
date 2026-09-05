@@ -27,6 +27,7 @@ export const ScannerScreen: React.FC<ScannerScreenProps> = ({ onAnalysisComplete
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isHighDemand, setIsHighDemand] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +87,7 @@ export const ScannerScreen: React.FC<ScannerScreenProps> = ({ onAnalysisComplete
 
     setIsAnalyzing(true);
     setErrorMessage(null);
+    setIsHighDemand(false);
 
     // Multi-stage progress indicators for mobile realism
     setAnalysisStep("Scanning candlestick geometry & price axis...");
@@ -98,8 +100,8 @@ export const ScannerScreen: React.FC<ScannerScreenProps> = ({ onAnalysisComplete
       setAnalysisStep("Validating Entry, SL & TP against chart structure...");
     }, 2400);
 
-    try {
-      const response = await fetch("/api/analyze-chart", {
+    const sendRequest = async () => {
+      return await fetch("/api/analyze-chart", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -110,12 +112,29 @@ export const ScannerScreen: React.FC<ScannerScreenProps> = ({ onAnalysisComplete
           mimeType: chartImage.startsWith("data:image/png") ? "image/png" : "image/jpeg",
         }),
       });
+    };
+
+    try {
+      let response = await sendRequest();
+
+      // If server returned 503 high demand, do a quick transparent automatic retry after brief 1.5s pause
+      if (response.status === 503) {
+        setAnalysisStep("AI server busy — retrying automatically...");
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        setAnalysisStep("Re-evaluating chart on available AI node...");
+        response = await sendRequest();
+      }
 
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        const highDemand =
+          response.status === 503 ||
+          Boolean(errData.isHighDemand) ||
+          (typeof errData.error === "string" && errData.error.toLowerCase().includes("demand"));
+        setIsHighDemand(highDemand);
         throw new Error(errData.error || `Analysis failed (${response.status})`);
       }
 
@@ -183,13 +202,37 @@ export const ScannerScreen: React.FC<ScannerScreenProps> = ({ onAnalysisComplete
         </p>
       </div>
 
-      {/* ERROR ALERT */}
+      {/* ERROR ALERT WITH RETRY */}
       {errorMessage && (
-        <div className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-3.5 text-xs text-rose-300 flex items-start gap-2.5">
-          <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-semibold text-rose-200">Analysis Notice</p>
-            <p className="mt-0.5">{errorMessage}</p>
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-xs text-rose-300 flex flex-col gap-3 shadow-lg shadow-rose-950/40">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-rose-200">
+                {isHighDemand ? "AI Model Under High Demand" : "Analysis Notice"}
+              </p>
+              <p className="mt-1 text-rose-300/90 leading-relaxed">{errorMessage}</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1 border-t border-rose-900/40">
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setIsHighDemand(false);
+              }}
+              className="px-3 py-1.5 rounded-xl border border-neutral-700 bg-neutral-800/80 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-700 transition active:scale-95"
+            >
+              Dismiss
+            </button>
+            <button
+              id="retry-analysis-btn"
+              onClick={handleAnalyze}
+              disabled={isAnalyzing}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow transition active:scale-95 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isAnalyzing ? "animate-spin" : ""}`} />
+              <span>Retry Scan</span>
+            </button>
           </div>
         </div>
       )}

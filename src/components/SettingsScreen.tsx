@@ -33,6 +33,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSModal, setShowIOSModal] = useState(false);
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [clearedNotice, setClearedNotice] = useState(false);
 
   const formatBytes = (bytes: number) => {
@@ -43,12 +44,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  const handleClearHistory = () => {
-    if (window.confirm("Are you sure you want to permanently clear all signal history?")) {
-      onClearAllHistory();
-      setClearedNotice(true);
-      setTimeout(() => setClearedNotice(false), 3000);
-    }
+  const handleConfirmClear = () => {
+    onClearAllHistory();
+    setShowConfirmClear(false);
+    setClearedNotice(true);
+    setTimeout(() => setClearedNotice(false), 3000);
   };
 
   return (
@@ -160,7 +160,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <button
             id="settings-clear-history-btn"
-            onClick={handleClearHistory}
+            onClick={() => setShowConfirmClear(true)}
             className="flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 px-3 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-900/40 transition active:scale-95"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -260,6 +260,32 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           Trading foreign exchange, cryptocurrencies, stocks, and commodities carries substantial risk of capital loss. AI Chart Scanner is an algorithmic chart structure assistant and does not constitute registered financial advisory services. Always manage risk responsibly.
         </div>
       </div>
+
+      {/* Clear History Confirmation Modal */}
+      {showConfirmClear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-5 shadow-2xl">
+            <h3 className="text-base font-bold text-white">Clear All Signal History?</h3>
+            <p className="mt-2 text-xs text-neutral-300 leading-relaxed">
+              This will permanently delete all saved signals and cached chart images from your local device storage.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setShowConfirmClear(false)}
+                className="flex-1 rounded-xl border border-neutral-700 bg-neutral-800 py-2.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmClear}
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-xs font-bold text-white hover:bg-rose-500"
+              >
+                Yes, Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* iOS Safari Guide Modal */}
       {showIOSModal && (

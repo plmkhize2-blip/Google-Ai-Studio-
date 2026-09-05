@@ -18,7 +18,18 @@
     <meta name="apple-mobile-web-app-title" content="AI Scanner" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Filter benign container HMR websocket notices
+      (function() {
+        const origError = console.error;
+        console.error = function(...args) {
+          if (args[0] && typeof args[0] === 'string' && (args[0].includes('[vite] failed to connect') || args[0].includes('vite-plugin-pwa:dev-ready'))) {
+            return;
+          }
+          origError.apply(console, args);
+        };
+      })();
+    </script>
   </head>
   <body class="bg-neutral-950 text-neutral-100 antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
     <div id="root"></div>
